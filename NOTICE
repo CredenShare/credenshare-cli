@@ -1,0 +1,13 @@
+CredenShare CLI
+Copyright 2026 CredenShare Inc.
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+This program includes the EFF long word list (internal/cli/eff_large_wordlist.txt), by the
+Electronic Frontier Foundation, unmodified, under the Creative Commons Attribution 3.0 United
+States licence (https://creativecommons.org/licenses/by/3.0/us/). Source:
+https://www.eff.org/files/2016/07/18/eff_large_wordlist.txt
+
+It is built on the CredenShare SDK for Go (Apache-2.0), and uses go-keyring (MIT), wincred
+(MIT), godbus/dbus (BSD-2-Clause), golang.org/x/term and golang.org/x/sys (BSD-3-Clause).
+Release archives carry each one's licence in THIRD_PARTY_LICENSES.txt.

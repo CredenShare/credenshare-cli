@@ -1,0 +1,80 @@
+name: Release
+
+# A tag vX.Y.Z builds every platform's binary and publishes a GitHub Release with the archives
+# and their SHA-256 checksums. Everything is checked before anything is published, because a
+# release people have downloaded cannot be taken back.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go run ./cmd/credenshare self-check
+
+      - name: The tag must match the changelog
+        # The changelog's newest heading is the release notes, so a tag without its entry would
+        # publish another version's notes.
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NEWEST=$(grep -m1 -E '^## ' CHANGELOG.md | sed 's/^## //')
+          if [ "$VERSION" != "$NEWEST" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but the newest CHANGELOG.md entry is $NEWEST"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build and package
+        run: |
+          mkdir -p dist
+          bash scripts/third_party_licenses.sh THIRD_PARTY_LICENSES.txt
+          for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            name="credenshare_${VERSION}_${os}_${arch}"
+            binary=credenshare; [ "$os" = windows ] && binary=credenshare.exe
+            mkdir -p "build/$name"
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -trimpath \
+              -ldflags "-s -w -X github.com/CredenShare/credenshare-cli/internal/cli.Version=${VERSION}" \
+              -o "build/$name/$binary" ./cmd/credenshare
+            cp LICENSE NOTICE README.md THIRD_PARTY_LICENSES.txt "build/$name/"
+            if [ "$os" = windows ]; then
+              (cd build && zip -qr "../dist/$name.zip" "$name")
+            else
+              tar -C build -czf "dist/$name.tar.gz" "$name"
+            fi
+          done
+          (cd dist && sha256sum * > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: The built binary reports the tag's version
+        run: |
+          tar -xzf "dist/credenshare_${VERSION}_linux_amd64.tar.gz" -C /tmp
+          REPORTED=$("/tmp/credenshare_${VERSION}_linux_amd64/credenshare" version --json | sed -n 's/.*"version": "\(.*\)".*/\1/p')
+          if [ "$REPORTED" != "$VERSION" ]; then
+            echo "::error::the binary reports $REPORTED, not $VERSION"
+            exit 1
+          fi
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          awk '/^## /{n++} n==1' CHANGELOG.md | tail -n +2 > notes.md
+          cat >> notes.md <<'EOF'
+
+          Check an archive against `SHA256SUMS` before installing it, then run
+          `credenshare self-check`. The binaries are not code-signed yet; see the README for
+          the macOS and Windows notes.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md
