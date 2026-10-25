@@ -21,6 +21,8 @@ Lists short codes and expiry times, newest first. Never content. Shares are list
 neither is named.
 
 Flags:
+  --status S   active (the default) or expired: shares that have ended, or requests that
+               have closed, newest first
   --limit N    per page, 1 to 100 (default 25)
   --page N     which page (default 1)
   --all        every page
@@ -36,6 +38,7 @@ func runList(ctx context.Context, a *App, out *output, args []string) error {
 	limit := fs.Int("limit", 25, "")
 	page := fs.Int("page", 1, "")
 	all := fs.Bool("all", false, "")
+	status := fs.String("status", "active", "")
 	positional, err := parseArgs(fs, "list", listHelp, out, args)
 	if err != nil {
 		return err
@@ -56,10 +59,16 @@ func runList(ctx context.Context, a *App, out *output, args []string) error {
 	if *all && flagWasSet(fs, "page") {
 		return usagef("list", "use --all or --page, not both")
 	}
+	if *status != "active" && *status != "expired" {
+		return usagef("list", "--status is active or expired")
+	}
 
 	client, err := a.client()
 	if err != nil {
 		return err
+	}
+	if *status == "expired" {
+		return listExpired(ctx, client, out, kind, *limit, *page, *all)
 	}
 
 	items := []listedItem{}

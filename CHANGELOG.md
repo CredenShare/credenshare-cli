@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- `credenshare audit CODE`: a share's access log, newest first, with `--since`, `--until`,
+  `--limit` and `--all`. Link previews, mail scanners and scripts are named from the user
+  agent, as the app's Access History names them. Needs a key with the new `audit:read` scope.
+- `credenshare list --status expired`: shares that have ended, and requests that have closed.
+- `credenshare capabilities`: the key's scopes and rate limit, its plan's limits and features,
+  and the team's sharing policy for a team key.
+- `auth login` and `auth status` check a key with the capabilities read, so a key with any
+  scope checks cleanly; `auth status` names the plan.
+
 ## 0.1.0
 
 The first release.

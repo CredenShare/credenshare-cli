@@ -33,8 +33,8 @@ type command struct {
 func commands() []command {
 	return []command{
 		authCommand, shareCommand, requestCommand, receiveCommand, listCommand,
-		showCommand, expireCommand, statsCommand, generateCommand, selfCheckCommand,
-		versionCommand,
+		showCommand, auditCommand, expireCommand, statsCommand, capabilitiesCommand,
+		generateCommand, selfCheckCommand, versionCommand,
 	}
 }
 
@@ -106,7 +106,7 @@ func topLevelHelp() string {
 	b.WriteString("Content is encrypted on this machine before it is sent; CredenShare cannot read it.\n\n")
 	b.WriteString("Usage:\n  credenshare <command> [flags]\n\nCommands:\n")
 	for _, c := range commands() {
-		fmt.Fprintf(&b, "  %-11s %s\n", c.name, c.summary)
+		fmt.Fprintf(&b, "  %-13s %s\n", c.name, c.summary)
 	}
 	b.WriteString(`
 Every command takes --json for output a script can parse.

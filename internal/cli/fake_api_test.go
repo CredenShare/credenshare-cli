@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +40,13 @@ type fakeAPI struct {
 	override          func(w http.ResponseWriter, r *http.Request) bool
 	clock             func() time.Time
 	onListSubmissions func(code string)
+
+	// Gitea #404's endpoints. capabilities nil answers as an API without the route.
+	capabilities    map[string]any
+	accessLogs      map[string][]map[string]any
+	accessQueries   []url.Values
+	expiredShares   []map[string]any
+	expiredRequests []map[string]any
 }
 
 type fakeRequest struct {
@@ -98,7 +106,48 @@ func (api *fakeAPI) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/v1"), "/"), "/")
+	query := r.URL.Query()
 	switch {
+	case r.Method == "GET" && parts[0] == "capabilities" && api.capabilities != nil:
+		writeJSON(w, 200, api.capabilities)
+	case r.Method == "GET" && len(parts) == 3 && parts[0] == "shares" && parts[2] == "access-log":
+		api.accessQueries = append(api.accessQueries, query)
+		entries, ok := api.accessLogs[parts[1]]
+		if !ok {
+			writeJSON(w, 404, map[string]any{"message": "Share not found", "error_code": 1})
+			return
+		}
+		limit, _ := strconv.Atoi(query.Get("limit"))
+		start, _ := strconv.Atoi(query.Get("cursor"))
+		end := start + limit
+		var next any
+		if end < len(entries) {
+			next = strconv.Itoa(end)
+		} else {
+			end = len(entries)
+		}
+		writeJSON(w, 200, map[string]any{
+			"short_code": parts[1], "entries": entries[start:end], "next_cursor": next,
+			"retention_days": 90, "effective_from": "2026-07-27T12:00:00Z", "effective_to": "2026-10-25T12:00:00Z",
+		})
+	case r.Method == "GET" && len(parts) == 1 && (parts[0] == "shares" || parts[0] == "requests") && query.Get("status") == "expired":
+		rows := api.expiredShares
+		if parts[0] == "requests" {
+			rows = api.expiredRequests
+		}
+		limit, _ := strconv.Atoi(query.Get("limit"))
+		page, _ := strconv.Atoi(query.Get("page"))
+		end := page * limit
+		if end > len(rows) {
+			end = len(rows)
+		}
+		start := (page - 1) * limit
+		if start > end {
+			start = end
+		}
+		writeJSON(w, 200, map[string]any{parts[0]: rows[start:end], "pagination": map[string]any{
+			"page": page, "limit": limit, "total": len(rows), "total_pages": (len(rows) + limit - 1) / limit,
+		}})
 	case r.Method == "GET" && parts[0] == "stats":
 		writeJSON(w, 200, map[string]any{
 			"shares": map[string]any{"active": 4, "expired": 9, "total_viewed": 31},

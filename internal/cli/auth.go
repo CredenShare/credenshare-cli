@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	credenshare "github.com/CredenShare/credenshare-sdk-go"
 )
 
 var authCommand = command{
@@ -96,14 +94,8 @@ func authLogin(ctx context.Context, a *App, out *output, args []string) error {
 		return err
 	}
 	// Checked before it is stored, so a typo is found now rather than on the first share.
-	// Any read proves the key authenticates; /stats is the cheapest. A key without the
-	// stats:read scope is still a good key.
-	_, err = client.GetStats(ctx)
-	switch {
-	case err == nil:
-	case errors.Is(err, credenshare.ErrPermission):
-		out.note("The key works, but it cannot read statistics (%v). That only matters for `credenshare stats`.", err)
-	default:
+	plan, err := checkKey(ctx, client)
+	if err != nil {
 		return err
 	}
 
@@ -117,6 +109,7 @@ func authLogin(ctx context.Context, a *App, out *output, args []string) error {
 		"key_id":    credential.KeyID,
 		"api_url":   a.apiURL(),
 		"stored_in": sourceKeychain,
+		"plan":      plan,
 	}, func(o *output) {
 		fmt.Fprintf(o.stdout, "Signed in with key %s. The key is in your keychain.\n", credential.KeyID)
 	})
@@ -140,11 +133,8 @@ func authStatus(ctx context.Context, a *App, out *output, args []string) error {
 	}
 
 	check := "accepted"
-	_, checkErr := client.GetStats(ctx)
-	if errors.Is(checkErr, credenshare.ErrPermission) {
-		// Authenticated: a refused key is a 401, not a 403.
-		check, checkErr = "accepted (without the stats:read scope)", nil
-	} else if checkErr != nil {
+	plan, checkErr := checkKey(ctx, client)
+	if checkErr != nil {
 		check = "refused"
 		if exitCodeFor(checkErr) != exitAuth {
 			check = "not checked"
@@ -157,6 +147,7 @@ func authStatus(ctx context.Context, a *App, out *output, args []string) error {
 		"source":    source,
 		"api_url":   a.apiURL(),
 		"check":     check,
+		"plan":      plan,
 	}
 	if checkErr != nil {
 		status["error"] = describe(checkErr)
@@ -168,6 +159,9 @@ func authStatus(ctx context.Context, a *App, out *output, args []string) error {
 		}
 		fmt.Fprintf(o.stdout, "Key %s, from %s\nAPI: %s\nCheck: %s\n",
 			client.Credential.KeyID, from, a.apiURL(), check)
+		if plan != "" {
+			fmt.Fprintf(o.stdout, "Plan: %s\n", plan)
+		}
 	}); err != nil {
 		return err
 	}
