@@ -172,6 +172,29 @@ func fieldType(given, value string) string {
 	return "password"
 }
 
+// notifyEvents reads --notify: the activity emails a share sends its creator, checked before anything is typed
+// rather than after, which is when the SDK would refuse them.
+func notifyEvents(text string) ([]string, error) {
+	var events []string
+	seen := map[string]bool{}
+	for _, part := range strings.Split(text, ",") {
+		event := strings.ToLower(strings.TrimSpace(part))
+		known := false
+		for _, e := range credenshare.NotifyOnEvents {
+			known = known || e == event
+		}
+		if !known {
+			return nil, usagef("share", "--notify takes %s, comma-separated; not %q",
+				strings.Join(credenshare.NotifyOnEvents, ", "), part)
+		}
+		if !seen[event] {
+			seen[event] = true
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
 // readPasscode reads --passcode-file when a path is given, or asks twice at the terminal when
 // ask is set. The caller refuses both at once.
 func readPasscode(ctx context.Context, a *App, cmd string, ask bool, path string) (string, error) {

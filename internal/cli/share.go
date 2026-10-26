@@ -43,6 +43,8 @@ Flags:
   --passcode-file PATH       read the passcode from a file
   --custody                  also make it readable from your dashboard (needs a key
                              created with custody)
+  --notify EVENTS            email you when the share is viewed, denied, expired or
+                             deleted: any of those, comma-separated
 
 TYPE is one of text, password, date, multiline, markdown, source_code, url, qr. Without one,
 a single line is a password and several lines are multiline text.
@@ -64,6 +66,7 @@ func runShare(ctx context.Context, a *App, out *output, args []string) error {
 	askPasscode := fs.Bool("passcode", false, "")
 	passcodeFile := fs.String("passcode-file", "", "")
 	custody := fs.Bool("custody", false, "")
+	notify := fs.String("notify", "", "")
 
 	positional, err := parseArgs(fs, "share", shareHelp, out, args)
 	if err != nil {
@@ -78,6 +81,11 @@ func runShare(ctx context.Context, a *App, out *output, args []string) error {
 		Title:       *title,
 		Description: *description,
 		Custody:     *custody,
+	}
+	if *notify != "" {
+		if params.NotifyOn, err = notifyEvents(*notify); err != nil {
+			return err
+		}
 	}
 	if *expires != "" {
 		if params.ExpiredAt, err = expiryAt(*expires, a.Now()); err != nil {

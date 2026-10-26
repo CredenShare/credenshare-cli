@@ -67,8 +67,9 @@ func runList(ctx context.Context, a *App, out *output, args []string) error {
 	if err != nil {
 		return err
 	}
+	listStatus := credenshare.StatusActive
 	if *status == "expired" {
-		return listExpired(ctx, client, out, kind, *limit, *page, *all)
+		listStatus = credenshare.StatusExpired
 	}
 
 	items := []listedItem{}
@@ -77,18 +78,18 @@ func runList(ctx context.Context, a *App, out *output, args []string) error {
 	var shownPage, totalPages int
 	switch {
 	case kind == "shares" && *all:
-		err = client.IterateShares(ctx, 100, func(s credenshare.ShareSummary) error {
+		err = client.IterateSharesByStatus(ctx, listStatus, 100, func(s credenshare.ShareSummary) error {
 			items = append(items, listedItem{s.ShortCode, s.ExpiredAt})
 			return nil
 		})
 	case kind == "requests" && *all:
-		err = client.IterateRequests(ctx, 100, func(r credenshare.RequestSummary) error {
+		err = client.IterateRequestsByStatus(ctx, listStatus, 100, func(r credenshare.RequestSummary) error {
 			items = append(items, listedItem{r.ShortCode, r.ExpiredAt})
 			return nil
 		})
 	case kind == "shares":
 		var p *credenshare.SharePage
-		if p, err = client.ListShares(ctx, *limit, *page); err == nil {
+		if p, err = client.ListSharesByStatus(ctx, listStatus, *limit, *page); err == nil {
 			for _, s := range p.Shares {
 				items = append(items, listedItem{s.ShortCode, s.ExpiredAt})
 			}
@@ -98,7 +99,7 @@ func runList(ctx context.Context, a *App, out *output, args []string) error {
 		}
 	default:
 		var p *credenshare.RequestPage
-		if p, err = client.ListRequests(ctx, *limit, *page); err == nil {
+		if p, err = client.ListRequestsByStatus(ctx, listStatus, *limit, *page); err == nil {
 			for _, r := range p.Requests {
 				items = append(items, listedItem{r.ShortCode, r.ExpiredAt})
 			}
@@ -111,13 +112,18 @@ func runList(ctx context.Context, a *App, out *output, args []string) error {
 		return err
 	}
 	result[kind] = items
+	result["status"] = *status
 
+	column, empty, next := "EXPIRES", "No "+kind+".", ""
+	if *status == "expired" {
+		column, empty, next = "ENDED", "No expired "+kind+".", " --status expired"
+	}
 	return out.emit(result, func(o *output) {
 		if len(items) == 0 {
-			o.note("No %s.", kind)
+			o.note("%s", empty)
 			return
 		}
-		fmt.Fprintf(o.stdout, "%-14s %s\n", "CODE", "EXPIRES")
+		fmt.Fprintf(o.stdout, "%-14s %s\n", "CODE", column)
 		for _, item := range items {
 			fmt.Fprintf(o.stdout, "%-14s %s\n", item.ShortCode, expiryText(item.ExpiredAt))
 		}
@@ -126,7 +132,7 @@ func runList(ctx context.Context, a *App, out *output, args []string) error {
 			if totalPages > 0 {
 				of = fmt.Sprintf(" of %d", totalPages)
 			}
-			o.note("Page %d%s. Next: credenshare list %s --page %d", shownPage, of, kind, shownPage+1)
+			o.note("Page %d%s. Next: credenshare list %s%s --page %d", shownPage, of, kind, next, shownPage+1)
 		}
 	})
 }

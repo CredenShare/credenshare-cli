@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- `credenshare share --notify viewed,denied,expired,deleted`: email yourself when the share is
+  viewed, when a view is refused, when it expires or when it is deleted, as the app's
+  "Email me when" does.
+- Built on the Go SDK 0.4.0: the access log, the expired lists and capabilities use its typed
+  methods, and `generate` uses its generator, so the CLI and the SDK draw and score secrets
+  the same way.
+
 ## 0.2.0
 
 - `credenshare audit CODE`: a share's access log, newest first, with `--since`, `--until`,

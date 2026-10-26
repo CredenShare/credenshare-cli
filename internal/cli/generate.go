@@ -2,15 +2,9 @@ package cli
 
 import (
 	"context"
-	"crypto/rand"
-	_ "embed"
 	"flag"
 	"fmt"
 	"math"
-	"math/big"
-	"strings"
-	"sync"
-	"unicode"
 
 	credenshare "github.com/CredenShare/credenshare-sdk-go"
 )
@@ -50,25 +44,14 @@ pin:
   --length N         4 to 12 (default 6)
 `
 
-// The character sets of the app's generator, symbols included, so the two produce the same
-// kind of password and report the same strength for it.
-const (
-	upperChars  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	lowerChars  = "abcdefghijklmnopqrstuvwxyz"
-	digitChars  = "0123456789"
-	symbolChars = "!@#$%^&*()_+-=[]{}|;:,.<>?`\"~/\\'"
-)
-
-var separators = map[string]string{
-	"hyphen": "-", "space": " ", "period": ".", "underscore": "_", "none": "",
-}
-
 var modeFlags = map[string][]string{
 	"password":   {"length", "no-uppercase", "no-lowercase", "no-numbers", "no-symbols", "exclude"},
 	"passphrase": {"words", "separator", "capitalize", "number"},
 	"pin":        {"length"},
 }
 
+// runGenerate is the SDK's generator (the app's three modes, unbiased, with nothing sent anywhere) behind the
+// command's flags. One implementation, in the SDK, so the CLI and every Go caller draw and score alike.
 func runGenerate(_ context.Context, a *App, out *output, args []string) error {
 	fs := newFlagSet("generate")
 	length := fs.Int("length", 0, "")
@@ -107,37 +90,28 @@ func runGenerate(_ context.Context, a *App, out *output, args []string) error {
 		return usagef("generate", "--%s does not apply to a %s", stray, mode)
 	}
 
-	var value string
-	var bits float64
+	var g credenshare.Generated
 	switch mode {
 	case "password":
 		n := 20
 		if flagWasSet(fs, "length") {
 			n = *length
 		}
+		// Checked here as well as in the SDK, which reads 0 as "the default" and would let --length 0 through.
 		if n < 8 || n > 128 {
 			return usagef("generate", "a password is 8 to 128 characters")
 		}
-		pool := passwordPool(!*noUpper, !*noLower, !*noNumbers, !*noSymbols, *exclude)
-		if pool == "" {
-			return usagef("generate", "those options leave no characters to choose from")
-		}
-		if value, err = randomString(pool, n); err != nil {
-			return err
-		}
-		bits = float64(n) * math.Log2(float64(len(pool)))
+		g, err = credenshare.GeneratePassword(credenshare.PasswordOptions{
+			Length: n, NoUppercase: *noUpper, NoLowercase: *noLower, NoNumbers: *noNumbers,
+			NoSymbols: *noSymbols, Exclude: *exclude,
+		})
 	case "passphrase":
 		if *words < 3 || *words > 12 {
 			return usagef("generate", "a passphrase is 3 to 12 words")
 		}
-		join, ok := separators[*separator]
-		if !ok {
-			return usagef("generate", "--separator is hyphen, space, period, underscore or none")
-		}
-		if value, err = passphrase(wordList(), *words, join, *capitalize, *withNumber); err != nil {
-			return err
-		}
-		bits = passphraseBits(len(wordList()), *words, *withNumber)
+		g, err = credenshare.GeneratePassphrase(credenshare.PassphraseOptions{
+			Words: *words, Separator: *separator, Capitalize: *capitalize, IncludeNumber: *withNumber,
+		})
 	case "pin":
 		n := 6
 		if flagWasSet(fs, "length") {
@@ -146,135 +120,25 @@ func runGenerate(_ context.Context, a *App, out *output, args []string) error {
 		if n < 4 || n > 12 {
 			return usagef("generate", "a PIN is 4 to 12 digits")
 		}
-		if value, err = randomString(digitChars, n); err != nil {
-			return err
-		}
-		bits = float64(n) * math.Log2(10)
+		g, err = credenshare.GeneratePIN(n)
+	}
+	if err != nil {
+		// The options the SDK refuses (no characters left, an unknown separator) are the caller's to fix.
+		return usagef("generate", "%v", err)
 	}
 
-	strength := strengthOf(bits)
 	if err := out.emit(map[string]any{
-		"kind": mode, "value": value, "bits": math.Round(bits*10) / 10, "strength": strength,
+		"kind": mode, "value": g.Value, "bits": math.Round(g.Bits*10) / 10, "strength": g.Strength,
 	}, func(o *output) {
-		fmt.Fprintln(o.stdout, value)
+		fmt.Fprintln(o.stdout, g.Value)
 	}); err != nil {
 		return err
 	}
 	if a.Terminal.StderrIsTerminal() {
-		out.note("%d bits, %s", int(math.Round(bits)), strength)
+		out.note("%d bits, %s", int(math.Round(g.Bits)), g.Strength)
 	}
 	return nil
 }
-
-func passwordPool(upper, lower, digits, symbols bool, exclude string) string {
-	var pool strings.Builder
-	for _, set := range []struct {
-		on    bool
-		chars string
-	}{{upper, upperChars}, {lower, lowerChars}, {digits, digitChars}, {symbols, symbolChars}} {
-		if !set.on {
-			continue
-		}
-		for _, c := range set.chars {
-			if !strings.ContainsRune(exclude, c) {
-				pool.WriteRune(c)
-			}
-		}
-	}
-	return pool.String()
-}
-
-// randomIndex draws uniformly from [0, n). crypto/rand.Int rejection-samples, so there is no
-// modulo bias: 2^32 mod 94 is not 0, and a plain % would favour the first characters.
-func randomIndex(n int) (int, error) {
-	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
-	if err != nil {
-		return 0, fmt.Errorf("reading randomness: %w", err)
-	}
-	return int(v.Int64()), nil
-}
-
-func randomString(pool string, n int) (string, error) {
-	chars := []rune(pool)
-	var b strings.Builder
-	for i := 0; i < n; i++ {
-		j, err := randomIndex(len(chars))
-		if err != nil {
-			return "", err
-		}
-		b.WriteRune(chars[j])
-	}
-	return b.String(), nil
-}
-
-func passphrase(list []string, n int, separator string, capitalize, withNumber bool) (string, error) {
-	picked := make([]string, n)
-	for i := range picked {
-		j, err := randomIndex(len(list))
-		if err != nil {
-			return "", err
-		}
-		word := list[j]
-		if capitalize {
-			runes := []rune(word)
-			runes[0] = unicode.ToUpper(runes[0])
-			word = string(runes)
-		}
-		picked[i] = word
-	}
-	if withNumber {
-		where, err := randomIndex(n)
-		if err != nil {
-			return "", err
-		}
-		digit, err := randomIndex(10)
-		if err != nil {
-			return "", err
-		}
-		picked[where] += fmt.Sprint(digit)
-	}
-	return strings.Join(picked, separator), nil
-}
-
-// passphraseBits counts each word as log2 of the list; the digit adds log2(10) and its
-// position log2(words). Capitals add nothing, since every word gets one.
-func passphraseBits(listSize, n int, withNumber bool) float64 {
-	bits := float64(n) * math.Log2(float64(listSize))
-	if withNumber {
-		bits += math.Log2(10) + math.Log2(float64(n))
-	}
-	return bits
-}
-
-// strengthOf is the app generator's label for a number of bits.
-func strengthOf(bits float64) string {
-	switch {
-	case bits < 40:
-		return "Weak"
-	case bits < 60:
-		return "Fair"
-	case bits < 80:
-		return "Strong"
-	}
-	return "Very Strong"
-}
-
-// The EFF long word list, byte-for-byte as the EFF publishes it (dice numbers, a tab, the
-// word). By the Electronic Frontier Foundation, licensed under CC BY 3.0 US; see NOTICE.
-//
-//go:embed eff_large_wordlist.txt
-var effLargeWordList string
-
-var wordList = sync.OnceValue(func() []string {
-	lines := strings.Split(strings.TrimSpace(effLargeWordList), "\n")
-	list := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if _, word, ok := strings.Cut(strings.TrimSpace(line), "\t"); ok {
-			list = append(list, word)
-		}
-	}
-	return list
-})
 
 var selfCheckCommand = command{
 	name:    "self-check",

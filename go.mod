@@ -3,7 +3,7 @@ module github.com/CredenShare/credenshare-cli
 go 1.24.0
 
 require (
-	github.com/CredenShare/credenshare-sdk-go v0.3.0
+	github.com/CredenShare/credenshare-sdk-go v0.4.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/term v0.40.0
 )

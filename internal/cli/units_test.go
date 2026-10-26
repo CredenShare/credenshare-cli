@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"math"
 	"strings"
 	"testing"
@@ -94,24 +92,6 @@ func TestParseAccessLink(t *testing.T) {
 	}
 }
 
-func TestWordListIsTheEFFList(t *testing.T) {
-	sum := sha256.Sum256([]byte(effLargeWordList))
-	if hex.EncodeToString(sum[:]) != "addd35536511597a02fa0a9ff1e5284677b8883b83e986e43f15a3db996b903e" {
-		t.Fatal("the embedded word list is not the EFF's file")
-	}
-	words := wordList()
-	seen := map[string]bool{}
-	for _, w := range words {
-		if w == "" || seen[w] {
-			t.Fatalf("empty or repeated word %q", w)
-		}
-		seen[w] = true
-	}
-	if len(words) != 7776 {
-		t.Fatalf("%d words", len(words))
-	}
-}
-
 func TestGenerate(t *testing.T) {
 	h := newHarness(t)
 
@@ -163,23 +143,5 @@ func TestGenerate(t *testing.T) {
 	}
 	if h.api.calls != 0 {
 		t.Fatal("generate used the network")
-	}
-}
-
-func TestGeneratedPasswordsCoverThePool(t *testing.T) {
-	// Not a statistical test, only a guard against an off-by-one that never draws the last
-	// character of the pool.
-	seen := map[rune]bool{}
-	for i := 0; i < 200; i++ {
-		s, err := randomString("abc", 20)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, r := range s {
-			seen[r] = true
-		}
-	}
-	if len(seen) != 3 {
-		t.Fatalf("saw %v", seen)
 	}
 }

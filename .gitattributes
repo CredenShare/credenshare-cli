@@ -1,5 +1,1 @@
 * text=auto eol=lf
-
-# Byte-for-byte the file the EFF publishes; a test pins its SHA-256, so a CRLF checkout must
-# not touch it.
-internal/cli/eff_large_wordlist.txt binary

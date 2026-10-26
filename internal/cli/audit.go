@@ -2,20 +2,14 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	credenshare "github.com/CredenShare/credenshare-sdk-go"
 )
-
-// The access log and capabilities are newer than the Go SDK's typed methods, so they go through its Do escape hatch,
-// which keeps its authentication, retries and error mapping.
 
 var auditCommand = command{
 	name:    "audit",
@@ -84,60 +78,47 @@ func runAudit(ctx context.Context, a *App, out *output, args []string) error {
 	if *limit < 1 || *limit > 100 {
 		return usagef("audit", "--limit is between 1 and 100")
 	}
-	query := url.Values{"limit": {strconv.Itoa(*limit)}}
-	for name, text := range map[string]string{"from": *since, "to": *until} {
-		if text == "" {
+	opts := credenshare.AccessLogOptions{Limit: *limit}
+	for _, bound := range []struct {
+		flag, text string
+		at         *time.Time
+	}{{"since", *since, &opts.From}, {"until", *until, &opts.To}} {
+		if bound.text == "" {
 			continue
 		}
-		at, err := pointInTime(text, a.Now())
+		at, err := pointInTime(bound.text, a.Now())
 		if err != nil {
-			return usagef("audit", "--%s: %v", map[string]string{"from": "since", "to": "until"}[name], err)
+			return usagef("audit", "--%s: %v", bound.flag, err)
 		}
-		query.Set(name, at)
+		*bound.at = at
 	}
 
 	client, err := a.client()
 	if err != nil {
 		return err
 	}
-	var result auditPage
-	for cursor := ""; ; {
-		q := url.Values{}
-		for k, v := range query {
-			q[k] = v
-		}
-		if cursor != "" {
-			q.Set("cursor", cursor)
-		}
-		data, err := client.Do(ctx, credenshare.Call{Path: "/shares/" + url.PathEscape(code) + "/access-log", Query: q})
+	result := auditPage{Entries: []auditEntry{}}
+	for first := true; ; first = false {
+		page, err := client.GetAccessLog(ctx, code, &opts)
 		if err != nil {
 			return err
 		}
-		var page auditPage
-		if err := remarshal(data, &page); err != nil {
-			return fmt.Errorf("reading the access log: %w", err)
+		if first {
+			result.ShortCode, result.RetentionDays = page.ShortCode, page.RetentionDays
+			result.EffectiveFrom, result.EffectiveTo = page.EffectiveFrom, page.EffectiveTo
 		}
-		if result.ShortCode == "" {
-			result = page
-		} else {
-			result.Entries = append(result.Entries, page.Entries...)
-			result.NextCursor = page.NextCursor
+		for _, e := range page.Entries {
+			result.Entries = append(result.Entries, auditEntryOf(e))
 		}
-		if !*all || page.NextCursor == nil || *page.NextCursor == "" {
+		result.NextCursor = nil
+		if page.NextCursor != "" {
+			next := page.NextCursor
+			result.NextCursor = &next
+		}
+		if !*all || page.NextCursor == "" {
 			break
 		}
-		cursor = *page.NextCursor
-	}
-	for i := range result.Entries {
-		ua := ""
-		if result.Entries[i].UserAgent != nil {
-			ua = *result.Entries[i].UserAgent
-		}
-		c := classifyAccessClient(ua)
-		result.Entries[i].ClientType, result.Entries[i].Client = c.Kind, c.Label
-	}
-	if result.Entries == nil {
-		result.Entries = []auditEntry{}
+		opts.Cursor = page.NextCursor
 	}
 
 	return out.emit(result, func(o *output) {
@@ -168,25 +149,29 @@ func runAudit(ctx context.Context, a *App, out *output, args []string) error {
 	})
 }
 
-// pointInTime turns --since/--until into an RFC 3339 time: a duration back from now, or a time.
-func pointInTime(text string, now time.Time) (string, error) {
+// auditEntryOf is an SDK entry with the client named, as the app names it, from the user agent.
+func auditEntryOf(e credenshare.AccessLogEntry) auditEntry {
+	ua := ""
+	if e.UserAgent != nil {
+		ua = *e.UserAgent
+	}
+	c := classifyAccessClient(ua)
+	return auditEntry{
+		AccessedAt: e.AccessedAt, AccessedIP: e.AccessedIP, Platform: e.Platform, UserAgent: e.UserAgent,
+		FailedPasscode: e.FailedPasscode, SignedIn: e.SignedIn, ClientType: c.Kind, Client: c.Label,
+	}
+}
+
+// pointInTime turns --since/--until into a time: a duration back from now, or an RFC 3339 time.
+func pointInTime(text string, now time.Time) (time.Time, error) {
 	if at, err := time.Parse(time.RFC3339, strings.TrimSpace(text)); err == nil {
-		return at.UTC().Format(time.RFC3339), nil
+		return at.UTC(), nil
 	}
 	d, err := parseDuration(text)
 	if err != nil || d <= 0 {
-		return "", fmt.Errorf("%q is not a duration like 24h or 7d, or a time like 2026-10-01T00:00:00Z", text)
+		return time.Time{}, fmt.Errorf("%q is not a duration like 24h or 7d, or a time like 2026-10-01T00:00:00Z", text)
 	}
-	return now.Add(-d).UTC().Format(time.RFC3339), nil
-}
-
-// remarshal turns Do's decoded JSON into a typed value.
-func remarshal(data map[string]any, into any) error {
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(raw, into)
+	return now.Add(-d).UTC(), nil
 }
 
 var capabilitiesCommand = command{
@@ -202,36 +187,25 @@ Shows what the key in use may do: its scopes and rate limit, the plan behind it 
 a team key), its limits and features, and the team's sharing policy for a team key.
 `
 
-type capabilities struct {
-	APIVersion string `json:"api_version"`
-	Key        struct {
-		KeyID          string   `json:"key_id"`
-		Scopes         []string `json:"scopes"`
-		CustodyLevel   int      `json:"custody_level"`
-		OrganizationID *string  `json:"organization_id"`
-		RateLimitRPM   int      `json:"rate_limit_rpm"`
-	} `json:"key"`
-	Plan struct {
-		Code string `json:"code"`
-		Name string `json:"name"`
-	} `json:"plan"`
-	Limits         map[string]int  `json:"limits"`
-	Features       map[string]bool `json:"features"`
-	SharingPolicy  map[string]any  `json:"sharing_policy"`
-	FieldTypes     []string        `json:"field_types"`
-	NotifyOnEvents []string        `json:"notify_on_events"`
-}
-
-func fetchCapabilities(ctx context.Context, client *credenshare.Client) (map[string]any, *capabilities, error) {
-	data, err := client.Do(ctx, credenshare.Call{Path: "/capabilities"})
-	if err != nil {
-		return nil, nil, err
+// capabilitiesJSON is --json's shape: the API's own field names, so a script reads what the API documents.
+func capabilitiesJSON(caps *credenshare.Capabilities) map[string]any {
+	return map[string]any{
+		"api_version": caps.APIVersion,
+		"key": map[string]any{
+			"key_id": caps.Key.KeyID, "scopes": caps.Key.Scopes, "custody_level": caps.Key.CustodyLevel,
+			"organization_id": caps.Key.OrganizationID, "rate_limit_rpm": caps.Key.RateLimitRPM,
+		},
+		"plan": map[string]any{"code": caps.Plan.Code, "name": caps.Plan.Name},
+		"limits": map[string]any{
+			"max_shares": caps.Limits.MaxShares, "remaining_shares": caps.Limits.RemainingShares,
+			"max_fields": caps.Limits.MaxFields, "max_days_access_logs": caps.Limits.MaxDaysAccessLogs,
+			"max_api_keys": caps.Limits.MaxAPIKeys, "max_webhooks": caps.Limits.MaxWebhooks,
+		},
+		"features":         caps.Features,
+		"sharing_policy":   caps.SharingPolicy,
+		"field_types":      caps.FieldTypes,
+		"notify_on_events": caps.NotifyOnEvents,
 	}
-	var caps capabilities
-	if err := remarshal(data, &caps); err != nil {
-		return nil, nil, fmt.Errorf("reading the capabilities: %w", err)
-	}
-	return data, &caps, nil
 }
 
 func runCapabilities(ctx context.Context, a *App, out *output, args []string) error {
@@ -242,11 +216,11 @@ func runCapabilities(ctx context.Context, a *App, out *output, args []string) er
 	if err != nil {
 		return err
 	}
-	raw, caps, err := fetchCapabilities(ctx, client)
+	caps, err := client.GetCapabilities(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return out.emit(raw, func(o *output) {
+	return out.emit(capabilitiesJSON(caps), func(o *output) {
 		team := "none (a personal key)"
 		if caps.Key.OrganizationID != nil {
 			team = *caps.Key.OrganizationID
@@ -260,10 +234,10 @@ func runCapabilities(ctx context.Context, a *App, out *output, args []string) er
 			caps.Key.KeyID, strings.Join(caps.Key.Scopes, ", "), level, team, caps.Key.RateLimitRPM)
 		fmt.Fprintf(o.stdout, "Plan         %s\n", caps.Plan.Name)
 		shares := "unlimited"
-		if caps.Limits["max_shares"] >= 0 {
-			shares = fmt.Sprintf("%d of %d left", caps.Limits["remaining_shares"], caps.Limits["max_shares"])
+		if caps.Limits.MaxShares != credenshare.Unlimited {
+			shares = fmt.Sprintf("%d of %d left", caps.Limits.RemainingShares, caps.Limits.MaxShares)
 		}
-		fmt.Fprintf(o.stdout, "Shares       %s\nAccess log   %s\n", shares, days(caps.Limits["max_days_access_logs"]))
+		fmt.Fprintf(o.stdout, "Shares       %s\nAccess log   %s\n", shares, days(caps.Limits.MaxDaysAccessLogs))
 		on := []string{}
 		for name, enabled := range caps.Features {
 			if enabled {
@@ -321,7 +295,7 @@ func describePolicy(p map[string]any) string {
 // checkKey proves a key authenticates, and names its plan when the API says. /capabilities needs no scope, so it
 // answers for any key; an API without it falls back to /stats, where a key lacking stats:read is still a good key.
 func checkKey(ctx context.Context, client *credenshare.Client) (plan string, err error) {
-	_, caps, err := fetchCapabilities(ctx, client)
+	caps, err := client.GetCapabilities(ctx, nil)
 	if err == nil {
 		return caps.Plan.Name, nil
 	}

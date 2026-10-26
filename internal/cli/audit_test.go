@@ -140,3 +140,27 @@ func TestListExpired(t *testing.T) {
 		t.Fatalf("an unknown status exited %d", code)
 	}
 }
+
+func TestShareNotify(t *testing.T) {
+	h := newHarness(t)
+	h.term.secrets = []string{"v"}
+	h.mustRun("", "share", "--notify", "viewed, denied,viewed")
+	got, _ := h.api.shares["SHR001"]["notify_on"].([]any)
+	if len(got) != 2 || got[0] != "viewed" || got[1] != "denied" {
+		t.Fatalf("notify_on sent as %v", h.api.shares["SHR001"]["notify_on"])
+	}
+
+	h.term.secrets = []string{"v"}
+	h.mustRun("", "share")
+	if _, sent := h.api.shares["SHR002"]["notify_on"]; sent {
+		t.Fatal("notify_on was sent without --notify")
+	}
+
+	calls := h.api.calls
+	if code := h.run("", "share", "--notify", "opened"); code != exitUsage || h.api.calls != calls {
+		t.Fatalf("an unknown event exited %d after %d request(s)", code, h.api.calls-calls)
+	}
+	if len(h.term.prompts) != 2 {
+		t.Fatalf("asked for a value before refusing the flag: %v", h.term.prompts)
+	}
+}

@@ -64,7 +64,7 @@ precedence over the keychain.
 
 | Command | What it does |
 |---|---|
-| `credenshare share` | Encrypts fields here, creates a share and prints its link. Values come from a hidden prompt, stdin or a file. Takes an expiry, a view limit, a timed view, a passcode and custody. |
+| `credenshare share` | Encrypts fields here, creates a share and prints its link. Values come from a hidden prompt, stdin or a file. Takes an expiry, a view limit, a timed view, a passcode, custody, and `--notify` to email you when it is viewed, refused, expired or deleted. |
 | `credenshare request` | Creates a secure request: a link someone fills in to send you secrets. What they submit is sealed to a key made on this machine and kept in your keychain. |
 | `credenshare receive CODE` | Fetches a request's submissions and decrypts them here. `--wait` waits for the first one; `--field NAME` prints one value, for scripts. |
 | `credenshare list [shares\|requests]` | Short codes and expiry times. Never content. `--status expired` lists the shares that have ended and the requests that have closed. |

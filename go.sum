@@ -1,5 +1,5 @@
-github.com/CredenShare/credenshare-sdk-go v0.3.0 h1:3sZDAqYqrVuSxLFSTmJ2PLmSzjPjBQBQVdIB28iWVbc=
-github.com/CredenShare/credenshare-sdk-go v0.3.0/go.mod h1:xgO9+bucYqZQxBZCLT4H0uHeM7NHR7iUN6R2bSqOWrE=
+github.com/CredenShare/credenshare-sdk-go v0.4.0 h1:gnrKzIh9HCi8XMimNHj+vVWsCHJ7Tr1qg33zv4D0P04=
+github.com/CredenShare/credenshare-sdk-go v0.4.0/go.mod h1:xgO9+bucYqZQxBZCLT4H0uHeM7NHR7iUN6R2bSqOWrE=
 github.com/danieljoos/wincred v1.2.3 h1:v7dZC2x32Ut3nEfRH+vhoZGvN72+dQ/snVXo/vMFLdQ=
 github.com/danieljoos/wincred v1.2.3/go.mod h1:6qqX0WNrS4RzPZ1tnroDzq9kY3fu1KwE7MRLQK4X0bs=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
