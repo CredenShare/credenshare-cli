@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Links on your team's custom domain: with a team key whose team has a custom domain in use
+  (Enterprise), `share` and `request` print links on that domain. Set `CREDENSHARE_LINK_ORIGIN` to
+  choose an origin yourself; without either, links use https://crs.sh as before.
+- `credenshare capabilities` shows where the team's links point, and `--json` carries `link_origin`.
+- Built on the Go SDK 0.5.0.
+
 ## 0.3.0
 
 - `credenshare share --notify viewed,denied,expired,deleted`: email yourself when the share is
