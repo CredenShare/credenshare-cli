@@ -184,13 +184,15 @@ var capabilitiesCommand = command{
 const capabilitiesHelp = `Usage: credenshare capabilities
 
 Shows what the key in use may do: its scopes and rate limit, the plan behind it (the team's for
-a team key), its limits and features, and the team's sharing policy for a team key.
+a team key), its limits and features, and the team's sharing policy for a team key. For a team key
+whose team has a custom domain in use, it also shows where the team's links point.
 `
 
 // capabilitiesJSON is --json's shape: the API's own field names, so a script reads what the API documents.
 func capabilitiesJSON(caps *credenshare.Capabilities) map[string]any {
 	return map[string]any{
 		"api_version": caps.APIVersion,
+		"link_origin": caps.LinkOrigin,
 		"key": map[string]any{
 			"key_id": caps.Key.KeyID, "scopes": caps.Key.Scopes, "custody_level": caps.Key.CustodyLevel,
 			"organization_id": caps.Key.OrganizationID, "rate_limit_rpm": caps.Key.RateLimitRPM,
@@ -248,6 +250,9 @@ func runCapabilities(ctx context.Context, a *App, out *output, args []string) er
 		fmt.Fprintf(o.stdout, "Features     %s\n", strings.Join(on, ", "))
 		if caps.SharingPolicy != nil {
 			fmt.Fprintf(o.stdout, "Team policy  %s\n", describePolicy(caps.SharingPolicy))
+		}
+		if caps.LinkOrigin != nil {
+			fmt.Fprintf(o.stdout, "Links        %s (the team's custom domain)\n", *caps.LinkOrigin)
 		}
 	})
 }

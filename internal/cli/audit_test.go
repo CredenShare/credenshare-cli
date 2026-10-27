@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"net/url"
 	"strings"
 	"testing"
+
+	credenshare "github.com/CredenShare/credenshare-sdk-go"
 )
 
 // Gitea #404 in the CLI: audit, capabilities and list --status expired.
@@ -162,5 +165,60 @@ func TestShareNotify(t *testing.T) {
 	}
 	if len(h.term.prompts) != 2 {
 		t.Fatalf("asked for a value before refusing the flag: %v", h.term.prompts)
+	}
+}
+
+// Gitea #412: with no CREDENSHARE_LINK_ORIGIN, a team key's links use the team's custom domain, which the SDK reads
+// from /v1/capabilities; with no domain in use, the default origin. A set origin still wins.
+func TestShareLinksFollowTheTeamsCustomDomain(t *testing.T) {
+	share := func(h *harness) string {
+		h.term.secrets = []string{"v"}
+		h.mustRun("", "share", "--field", "Token", "--title", "Domain")
+		return strings.TrimSpace(h.stdout.String())
+	}
+	origin := func(t *testing.T, link string) string {
+		parsed, err := url.Parse(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parsed.Scheme + "://" + parsed.Host
+	}
+
+	h := newHarness(t)
+	delete(h.env, envLinkOrigin)
+	caps := testCapabilities(true)
+	caps["link_origin"] = "https://secure.example.com"
+	h.api.capabilities = caps
+	if got := origin(t, share(h)); got != "https://secure.example.com" {
+		t.Fatalf("team key with a custom domain: link on %q", got)
+	}
+
+	h = newHarness(t)
+	delete(h.env, envLinkOrigin)
+	h.api.capabilities = testCapabilities(false)
+	if got := origin(t, share(h)); got != credenshare.DefaultLinkOrigin {
+		t.Fatalf("no custom domain: link on %q", got)
+	}
+
+	h = newHarness(t)
+	h.api.capabilities = caps
+	if got := origin(t, share(h)); got != testLinkOrigin {
+		t.Fatalf("CREDENSHARE_LINK_ORIGIN set: link on %q", got)
+	}
+}
+
+func TestCapabilitiesShowTheTeamsLinks(t *testing.T) {
+	h := newHarness(t)
+	caps := testCapabilities(true)
+	caps["link_origin"] = "https://secure.example.com"
+	h.api.capabilities = caps
+	h.mustRun("", "capabilities")
+	if !strings.Contains(h.stdout.String(), "Links        https://secure.example.com") {
+		t.Errorf("no link origin in:\n%s", h.stdout.String())
+	}
+	h.mustRun("", "capabilities", "--json")
+	if !strings.Contains(h.stdout.String(), `"link_origin":"https://secure.example.com"`) &&
+		!strings.Contains(h.stdout.String(), `"link_origin": "https://secure.example.com"`) {
+		t.Errorf("no link_origin in --json:\n%s", h.stdout.String())
 	}
 }

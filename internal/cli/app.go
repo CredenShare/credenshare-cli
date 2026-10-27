@@ -96,11 +96,14 @@ func (a *App) apiURL() string {
 	return credenshare.DefaultBaseURL
 }
 
+// linkOrigin is CREDENSHARE_LINK_ORIGIN when it is set, and "" otherwise: the SDK then builds a team key's links on
+// the team's custom domain when it has one in use (Gitea #412, read once from /v1/capabilities), and every other
+// link on credenshare.DefaultLinkOrigin. Passing the default here would read as a choice and skip that lookup.
 func (a *App) linkOrigin() string {
 	if value := strings.TrimSpace(a.Getenv(envLinkOrigin)); value != "" {
 		return strings.TrimRight(value, "/")
 	}
-	return credenshare.DefaultLinkOrigin
+	return ""
 }
 
 // errNotSignedIn is exit code 2 with the two ways out named.

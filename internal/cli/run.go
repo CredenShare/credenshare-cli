@@ -114,7 +114,8 @@ Every command takes --json for output a script can parse.
 Environment:
   CREDENSHARE_API_KEY      an API key; overrides the keychain (for CI)
   CREDENSHARE_API_URL      another API address (default ` + credenshare.DefaultBaseURL + `)
-  CREDENSHARE_LINK_ORIGIN  where links point (default ` + credenshare.DefaultLinkOrigin + `)
+  CREDENSHARE_LINK_ORIGIN  where links point (default: a team key's custom domain when its team has
+                           one, otherwise ` + credenshare.DefaultLinkOrigin + `)
 
 Exit codes:
   0  done
